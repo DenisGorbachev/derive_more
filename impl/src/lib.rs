@@ -12,6 +12,8 @@ mod utils;
 
 #[cfg(feature = "as_ref")]
 mod r#as;
+#[cfg(feature = "borrow")]
+mod borrow;
 #[cfg(feature = "eq")]
 mod cmp;
 #[cfg(feature = "constructor")]
@@ -145,6 +147,8 @@ create_derive!(
 
 create_derive!("as_ref", r#as::r#mut, AsMut, as_mut_derive, as_mut);
 create_derive!("as_ref", r#as::r#ref, AsRef, as_ref_derive, as_ref);
+
+create_derive!("borrow", borrow, Borrow, borrow_derive, borrow);
 
 create_derive!("constructor", constructor, Constructor, constructor_derive);
 
