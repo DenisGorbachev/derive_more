@@ -8,6 +8,7 @@
 //! [`IntoIterator`]: macro@crate::IntoIterator
 //! [`AsRef`]: macro@crate::AsRef
 //! [`Borrow`]: macro@crate::Borrow
+//! [`BorrowMut`]: macro@crate::BorrowMut
 //!
 //! [`Debug`]: macro@crate::Debug
 //! [`Display`-like]: macro@crate::Display
@@ -185,7 +186,7 @@ pub mod with_trait {
             SubAssign,
         );
         re_export_traits!("as_ref", as_ref_traits, core::convert, AsMut, AsRef);
-        re_export_traits!("borrow", borrow_traits, core::borrow, Borrow);
+        re_export_traits!("borrow", borrow_traits, core::borrow, Borrow, BorrowMut);
         re_export_traits!("debug", debug_traits, core::fmt, Debug);
         re_export_traits!("deref", deref_traits, core::ops, Deref);
         re_export_traits!("deref_mut", deref_mut_traits, core::ops, DerefMut);
@@ -262,7 +263,7 @@ pub mod with_trait {
         pub use derive_more_impl::{AsMut, AsRef};
 
         #[cfg(feature = "borrow")]
-        pub use derive_more_impl::Borrow;
+        pub use derive_more_impl::{Borrow, BorrowMut};
 
         #[cfg(feature = "constructor")]
         pub use derive_more_impl::Constructor;
@@ -359,7 +360,7 @@ pub mod with_trait {
 
     #[cfg(feature = "borrow")]
     #[doc(hidden)]
-    pub use all_traits_and_derives::Borrow;
+    pub use all_traits_and_derives::{Borrow, BorrowMut};
 
     #[cfg(feature = "constructor")]
     #[doc(hidden)]

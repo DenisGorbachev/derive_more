@@ -140,6 +140,11 @@ path = "tests/borrow.rs"
 required-features = ["borrow"]
 
 [[test]]
+name = "borrow_mut"
+path = "tests/borrow_mut.rs"
+required-features = ["borrow"]
+
+[[test]]
 name = "boats_display_derive"
 path = "tests/boats_display_derive.rs"
 required-features = ["display"]

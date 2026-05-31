@@ -1,7 +1,7 @@
-//! Implementation of a [`Borrow`] derive macro.
+//! Implementation of `Borrow`/`BorrowMut` derive macros.
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens as _};
+use quote::{format_ident, quote};
 use syn::{
     parse::{Parse, ParseStream},
     parse_quote,
@@ -14,13 +14,20 @@ use crate::utils::{
     Either, GenericsSearch, Spanning,
 };
 
-/// Expands a [`Borrow`] derive macro.
+/// Expands a `Borrow`/`BorrowMut` derive macro.
 pub(crate) fn expand(
     input: &syn::DeriveInput,
     trait_name: &'static str,
 ) -> syn::Result<TokenStream> {
     let trait_ident = format_ident!("{trait_name}");
-    let attr_name = format_ident!("borrow");
+    let is_mutable = trait_name == "BorrowMut";
+    let attr_name =
+        format_ident!("{}", if is_mutable { "borrow_mut" } else { "borrow" });
+    let trait_info = ExpansionCtx {
+        trait_ident: &trait_ident,
+        attr_name: &attr_name,
+        is_mutable,
+    };
 
     let data = match &input.data {
         syn::Data::Struct(data) => Ok(data),
@@ -46,14 +53,15 @@ pub(crate) fn expand(
     }
 
     let field = data.fields.iter().next().unwrap();
-    let struct_attr = StructAttribute::parse_attrs(&input.attrs, &attr_name)?;
-    let field_attr = FieldAttribute::parse_attrs(&field.attrs, &attr_name)?;
+    let struct_attr = StructAttribute::parse_attrs(&input.attrs, trait_info.attr_name)?;
+    let field_attr = FieldAttribute::parse_attrs(&field.attrs, trait_info.attr_name)?;
 
     if struct_attr.is_some() && field_attr.is_some() {
         return Err(syn::Error::new(
             field.span(),
             format!(
-                "`#[{attr_name}(...)]` cannot be placed on both struct and its field"
+                "`#[{}(...)]` cannot be placed on both struct and its field",
+                trait_info.attr_name,
             ),
         ));
     }
@@ -68,9 +76,11 @@ pub(crate) fn expand(
                 return Err(syn::Error::new(
                     attr.span,
                     format!(
-                        "`#[{attr_name}({})]` cannot be used when deriving `{trait_ident}` \
+                        "`#[{}({})]` cannot be used when deriving `{}` \
                          because exactly one field must be borrowed",
+                        trait_info.attr_name,
                         skip.name(),
+                        trait_info.trait_ident,
                     ),
                 ));
             }
@@ -79,23 +89,22 @@ pub(crate) fn expand(
         false
     };
 
-    validate_field_type(field, &input.generics, is_forwarded, &trait_ident)?;
+    validate_field_type(field, &input.generics, is_forwarded, trait_info)?;
 
-    Ok(Expansion {
-        ident: &input.ident,
-        generics: &input.generics,
+    Ok(expand_impl(
+        &input.ident,
+        &input.generics,
         field,
-        field_index: 0,
         is_forwarded,
-    }
-    .into_token_stream())
+        trait_info,
+    ))
 }
 
 fn validate_field_type(
     field: &syn::Field,
     generics: &syn::Generics,
     is_forwarded: bool,
-    trait_ident: &syn::Ident,
+    trait_info: ExpansionCtx<'_>,
 ) -> syn::Result<()> {
     let field_ty = &field.ty;
 
@@ -103,9 +112,11 @@ fn validate_field_type(
         return Err(syn::Error::new(
             field_ty.span(),
             format!(
-                "`{trait_ident}` cannot be derived for an associated type projection involving \
-                 generic parameters because the impl can overlap with `core`'s blanket `Borrow` \
+                "`{}` cannot be derived for an associated type projection involving generic \
+                 parameters because the impl can overlap with `core`'s blanket `{}` \
                  implementation",
+                trait_info.trait_ident,
+                trait_info.trait_ident,
             ),
         ));
     }
@@ -113,9 +124,13 @@ fn validate_field_type(
     if is_forwarded && is_forwarded_overlap(field_ty, generics) {
         return Err(syn::Error::new(
             field_ty.span(),
-            "`#[borrow(forward)]` cannot be used on a generic parameter field, an associated \
-             type projection involving generic parameters, or a forwarding pointer to one \
-             because the impl can overlap with `core`'s blanket `Borrow` implementation",
+            format!(
+                "`#[{}(forward)]` cannot be used on a generic parameter field, an associated \
+                 type projection involving generic parameters, or a forwarding pointer to one \
+                 because the impl can overlap with `core`'s blanket `{}` implementation",
+                trait_info.attr_name,
+                trait_info.trait_ident,
+            ),
         ));
     }
 
@@ -133,11 +148,8 @@ fn is_assoc_type_involving_generic_param(
         syn::Type::Paren(ty) => {
             return is_assoc_type_involving_generic_param(&ty.elem, generics)
         }
-        ty => ty,
-    };
-
-    let syn::Type::Path(ty) = ty else {
-        return false;
+        syn::Type::Path(ty) => ty,
+        _ => return false,
     };
 
     if ty.qself.is_some() {
@@ -230,90 +242,92 @@ fn fundamental_path_segment(ty: &syn::TypePath) -> Option<&syn::PathSegment> {
     }
 }
 
-/// Expansion of a macro for generating a [`Borrow`] implementation for a single field of a struct.
-struct Expansion<'a> {
-    /// [`syn::Ident`] of the struct.
-    ident: &'a syn::Ident,
-
-    /// [`syn::Generics`] of the struct.
-    generics: &'a syn::Generics,
-
-    /// [`syn::Field`] of the struct.
-    field: &'a syn::Field,
-
-    /// Index of the [`syn::Field`].
-    field_index: usize,
-
-    /// Whether `Borrow::borrow()` should be forwarded to the field's `Borrow` implementation.
-    is_forwarded: bool,
+#[derive(Clone, Copy)]
+struct ExpansionCtx<'a> {
+    trait_ident: &'a syn::Ident,
+    attr_name: &'a syn::Ident,
+    is_mutable: bool,
 }
 
-impl quote::ToTokens for Expansion<'_> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let field_ty = &self.field.ty;
-        let field_ident = self.field.ident.as_ref().map_or_else(
-            || syn::Index::from(self.field_index).to_token_stream(),
-            quote::ToTokens::to_token_stream,
+fn expand_impl(
+    ty_ident: &syn::Ident,
+    generics: &syn::Generics,
+    field: &syn::Field,
+    is_forwarded: bool,
+    trait_info: ExpansionCtx<'_>,
+) -> TokenStream {
+    let field_ty = &field.ty;
+    let field_ident = field
+        .ident
+        .as_ref()
+        .map_or_else(|| quote! { 0 }, |ident| quote! { #ident });
+    let (_, ty_gens, _) = generics.split_for_impl();
+    let borrow_ty = extra_borrow_type_param(generics, trait_info);
+    let trait_ident = trait_info.trait_ident;
+    let method_ident = trait_info.attr_name;
+    let mutability = trait_info.is_mutable.then(|| quote! { mut });
+
+    let trait_ty = if is_forwarded {
+        quote! { #borrow_ty }
+    } else {
+        quote! { #field_ty }
+    };
+    let return_ty = if is_forwarded {
+        quote! { #trait_ty }
+    } else {
+        borrowed_type_for_return(field_ty)
+    };
+    let trait_path = quote! {
+        derive_more::core::borrow::#trait_ident<#trait_ty>
+    };
+
+    let generics = if is_forwarded {
+        let mut generics = add_extra_generic_type_param(
+            generics,
+            quote! { #borrow_ty: ?derive_more::core::marker::Sized },
         );
-        let ty_ident = &self.ident;
-        let (_, ty_gens, _) = self.generics.split_for_impl();
-        let borrow_ty = extra_borrow_type_param(self.generics);
+        generics.make_where_clause().predicates.push(parse_quote! {
+            #field_ty: #trait_path
+        });
+        generics
+    } else {
+        generics.clone()
+    };
+    let (impl_gens, _, where_clause) = generics.split_for_impl();
 
-        let trait_ty = if self.is_forwarded {
-            quote! { #borrow_ty }
-        } else {
-            quote! { #field_ty }
-        };
-        let return_ty = if self.is_forwarded {
-            quote! { #trait_ty }
-        } else {
-            borrowed_type_for_return(field_ty)
-        };
-        let trait_path = quote! {
-            derive_more::core::borrow::Borrow<#trait_ty>
-        };
-
-        let generics = if self.is_forwarded {
-            let mut generics = add_extra_generic_type_param(
-                self.generics,
-                quote! { #borrow_ty: ?derive_more::core::marker::Sized },
-            );
-            generics.make_where_clause().predicates.push(parse_quote! {
-                #field_ty: #trait_path
-            });
-            generics
-        } else {
-            self.generics.clone()
-        };
-        let (impl_gens, _, where_clause) = generics.split_for_impl();
-
-        let body = if self.is_forwarded {
-            quote! {
-                <#field_ty as #trait_path>::borrow(&self.#field_ident)
-            }
-        } else {
-            quote! {
-                &self.#field_ident
-            }
-        };
-
+    let body = if is_forwarded {
         quote! {
-            #[allow(deprecated)] // omit warnings on deprecated fields/variants
-            #[allow(unreachable_code)] // omit warnings for `!` and other unreachable types
-            #[automatically_derived]
-            impl #impl_gens #trait_path for #ty_ident #ty_gens #where_clause {
-                #[inline]
-                fn borrow(&self) -> &#return_ty {
-                    #body
-                }
+            <#field_ty as #trait_path>::#method_ident(& #mutability self.#field_ident)
+        }
+    } else {
+        quote! {
+            & #mutability self.#field_ident
+        }
+    };
+
+    quote! {
+        #[allow(deprecated)] // omit warnings on deprecated fields/variants
+        #[allow(unreachable_code)] // omit warnings for `!` and other unreachable types
+        #[automatically_derived]
+        impl #impl_gens #trait_path for #ty_ident #ty_gens #where_clause {
+            #[inline]
+            fn #method_ident(& #mutability self) -> & #mutability #return_ty {
+                #body
             }
         }
-        .to_tokens(tokens);
     }
 }
 
-fn extra_borrow_type_param(generics: &syn::Generics) -> syn::Ident {
-    let mut ident = format_ident!("__BorrowT");
+fn extra_borrow_type_param(
+    generics: &syn::Generics,
+    trait_info: ExpansionCtx<'_>,
+) -> syn::Ident {
+    let prefix = if trait_info.is_mutable {
+        "__BorrowMutT"
+    } else {
+        "__BorrowT"
+    };
+    let mut ident = format_ident!("{prefix}");
     let mut index = 0;
 
     while generics.params.iter().any(|param| match param {
@@ -322,7 +336,7 @@ fn extra_borrow_type_param(generics: &syn::Generics) -> syn::Ident {
         syn::GenericParam::Lifetime(_) => false,
     }) {
         index += 1;
-        ident = format_ident!("__BorrowT{index}");
+        ident = format_ident!("{prefix}{index}");
     }
 
     ident

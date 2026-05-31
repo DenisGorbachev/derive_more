@@ -8,7 +8,7 @@ mod structs {
     mod structural {
         #[cfg(not(feature = "std"))]
         use ::alloc::{boxed::Box, vec::Vec};
-        use derive_more::{__private::AssertParamIsEq, Eq};
+        use derive_more::{Eq, __private::AssertParamIsEq};
 
         #[test]
         fn unit() {
@@ -73,7 +73,7 @@ mod structs {
         }
 
         mod skip {
-            use derive_more::{__private::AssertParamIsEq, Eq, PartialEq};
+            use derive_more::{Eq, PartialEq, __private::AssertParamIsEq};
 
             struct NoEq;
 
@@ -165,7 +165,7 @@ mod structs {
         mod generic {
             #[cfg(not(feature = "std"))]
             use ::alloc::{boxed::Box, vec::Vec};
-            use derive_more::{__private::AssertParamIsEq, Eq, PartialEq};
+            use derive_more::{Eq, PartialEq, __private::AssertParamIsEq};
 
             trait Some {
                 type Assoc;
@@ -245,7 +245,7 @@ mod structs {
             }
 
             mod skip {
-                use derive_more::{__private::AssertParamIsEq, Eq, PartialEq};
+                use derive_more::{Eq, PartialEq, __private::AssertParamIsEq};
 
                 struct NoEq;
 
@@ -327,7 +327,7 @@ mod enums {
     mod structural {
         #[cfg(not(feature = "std"))]
         use ::alloc::{boxed::Box, vec::Vec};
-        use derive_more::{__private::AssertParamIsEq, Eq};
+        use derive_more::{Eq, __private::AssertParamIsEq};
 
         #[test]
         fn empty() {
@@ -434,7 +434,7 @@ mod enums {
         }
 
         mod skip {
-            use derive_more::{__private::AssertParamIsEq, Eq, PartialEq};
+            use derive_more::{Eq, PartialEq, __private::AssertParamIsEq};
 
             struct NoEq;
 
@@ -550,7 +550,7 @@ mod enums {
         mod generic {
             #[cfg(not(feature = "std"))]
             use ::alloc::{boxed::Box, vec::Vec};
-            use derive_more::{__private::AssertParamIsEq, Eq, PartialEq};
+            use derive_more::{Eq, PartialEq, __private::AssertParamIsEq};
 
             trait Some {
                 type Assoc;
@@ -654,7 +654,7 @@ mod enums {
             }
 
             mod skip {
-                use derive_more::{__private::AssertParamIsEq, Eq, PartialEq};
+                use derive_more::{Eq, PartialEq, __private::AssertParamIsEq};
 
                 struct NoEq;
 
